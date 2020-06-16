@@ -125,6 +125,22 @@ static void register_response(eXosip_event_t *evtp, int code)
     }
 }
 
+static void response200(eXosip_event_t *evtp)
+{
+    int ret = 0 ;
+    osip_message_t * msg = NULL;
+
+    ret = eXosip_message_build_answer (app.ctx, evtp->tid, 200, &msg);
+    if (!ret && msg) {
+        eXosip_lock(app.ctx);
+        LOGI("send response answer");
+        eXosip_message_send_answer (app.ctx, evtp->tid, 200, msg);
+        eXosip_unlock(app.ctx);
+    } else {
+        LOGE("build answer error(%d)", ret);
+    }
+}
+
 static void register_401unauthorized_response(eXosip_event_t *evtp)
 {
     int ret = 0;
@@ -158,6 +174,56 @@ static void auth_calc_response(char *username, char *uri, char *method, HASHHEX 
     DigestCalcHA1("REGISTER", username, app.relm, PASSWD, NONCE, NULL, HA1);
     DigestCalcResponse(HA1, NONCE, NULL, NULL, NULL, 0, method, uri, NULL, rresponse);
     memcpy(response, rresponse, HASHHEXLEN);
+}
+
+static int cmd_catalog(char* from, char* to, char *sip_id)
+{
+    osip_message_t *msg;
+    char body[1024] = {0};
+    char *s;
+    size_t len;
+
+    sprintf(body, "<?xml version=\"1.0\"?>\r\n"
+                  "<Query>\r\n"
+                  "<CmdType>Catalog</CmdType>\r\n"
+                  "<SN>1</SN>\r\n"
+                  "<DeviceID>%s</DeviceID>\r\n"
+                  "</Query>\r\n", sip_id);
+
+    eXosip_message_build_request(app.ctx, &msg, "MESSAGE", to, from, NULL);
+    osip_message_set_body(msg, body, strlen(body));
+    osip_message_set_content_type(msg, "Application/MANSCDP+xml");
+    eXosip_message_send_request(app.ctx, msg);	
+
+    osip_message_to_str(msg, &s, &len);
+    //LOGI("send cmd catalog: \n%s", s);
+    //
+    return 0;
+}
+
+static int uas_cmd_catalog()
+{
+    char from[1024] = {0};
+    char to[1024] = {0};
+
+    sprintf(from, "sip:%s@%s:%d", app.sip_id, app.server_ip, USER_PORT);
+    sprintf(to, "sip:%s@%s:%d", app.user_id, app.user_ip, PORT);
+    LOGI("send catalog to %s", to);
+    cmd_catalog(from, to, app.user_id);
+
+    return 0;
+}
+
+static int uac_cmd_catalog()
+{
+    char from[1024] = {0};
+    char to[1024] = {0};
+
+    sprintf(from, "sip:%s@%s:%d", app.user_id, get_ip(), USER_PORT);
+    sprintf(to, "sip:%s@%s:%d", app.sip_id, app.server_ip, PORT);
+    cmd_catalog(from, to, app.sip_id);
+
+    return 0;
 }
 
 static int cmd_callstart()
@@ -229,6 +295,7 @@ int register_handle(eXosip_event_t *evtp)
         if (contact && contact->url) {
             app.user_ip = strdup(contact->url->host);
             app.user_port = atoi(contact->url->port);
+            LOGI("user_ip:%s", app.user_ip);
         } else {
             LOGE("get contact error");
         }
@@ -309,7 +376,7 @@ void *media_thread(void *arg)
             LOGE("read error, %s", strerror(errno));
             goto exit;
         }
-        LOGI("size:%d", ret);
+        //LOGI("size:%d", ret);
         fwrite(buf, ret, 1, fp);
         fflush(fp);
     }
@@ -422,7 +489,6 @@ int catalog_handle(eXosip_event_t *evtp)
 
     register_response(evtp, 200);
     sleep(1);
-#if 1
     snprintf(rsp_xml_body, sizeof(rsp_xml_body),
             "<?xml version=\"1.0\"?>\r\n"
             "<Response>\r\n"
@@ -483,51 +549,6 @@ int catalog_handle(eXosip_event_t *evtp)
             "</ Item > \r\n"
             "< /DeviceList>\r\n"
             "</Response>\r\n");
-#else
-snprintf(rsp_xml_body, sizeof(rsp_xml_body), "<?xml version=\"1.0\"?>\r\n"
-        "<Response>\r\n"
-        "<CmdType>Catalog</CmdType>\r\n"
-        "<SN>1</SN>\r\n"
-        "<DeviceID>31010100992170000066</DeviceID>\r\n"
-        "<SumNum>2</SumNum>\r\n"
-        "<DeviceList Num=\"2\">\r\n"
-        "<Item>\r\n"
-        "<DeviceID>31010100992170000069</DeviceID>\r\n"
-        "<Name>camera01</Name>\r\n"
-        "<Manufacturer>Hikvision</Manufacturer>\r\n"
-        "<Model>Camera</Model>\r\n"
-        "<Owner>Hikvision</Owner>\r\n"
-        "<CivilCode>China</CivilCode>\r\n"
-        "<Address>100.100.84.94</Address>\r\n"
-        "<Parental>0</Parental>\r\n"
-        "<ParentID>31010100992170000066</ParentID>\r\n"
-        "<SafetyWay>0</SafetyWay>\r\n"
-        "<RegisterWay>1</RegisterWay>\r\n"
-        "<Secrecy>0</Secrecy>\r\n"
-        "<Status>ON</Status>\r\n"
-        "<Longitude>171.3</Longitude>\r\n"
-        "<Latitude>34.2</Latitude>\r\n"
-        "</Item>\r\n"
-        "<Item>\r\n"
-        "<DeviceID>31010100992170000068</DeviceID>\r\n"
-        "<Name>camera02</Name>\r\n"
-        "<Manufacturer>Hikvision</Manufacturer>\r\n"
-        "<Model>Camera</Model>\r\n"
-        "<Owner>Hikvision</Owner>\r\n"
-        "<CivilCode>China</CivilCode>\r\n"
-        "<Address>100.100.84.95</Address>\r\n"
-        "<Parental>0</Parental>\r\n"
-        "<ParentID>31010100992170000066</ParentID>\r\n"
-        "<SafetyWay>0</SafetyWay>\r\n"
-        "<RegisterWay>1</RegisterWay>\r\n"
-        "<Secrecy>0</Secrecy>\r\n"
-        "<Status>ON</Status>\r\n"
-        "<Longitude>171.4</Longitude>\r\n"
-        "<Latitude>34.2</Latitude>\r\n"
-        "</Item>\r\n"
-        "</DeviceList>\r\n"
-        "</Response>\r\n");
-#endif
     sprintf(from, "sip:%s@%s:%d", app.user_id, app.server_ip, USER_PORT);
     sprintf(to, "sip:%s@%s:%d", app.sip_id, app.server_ip, PORT);
     eXosip_message_build_request(app.ctx, &rsp_msg, "MESSAGE", to, from, NULL);
@@ -536,7 +557,7 @@ snprintf(rsp_xml_body, sizeof(rsp_xml_body), "<?xml version=\"1.0\"?>\r\n"
     eXosip_message_send_request(app.ctx, rsp_msg);	
 
     osip_message_to_str(rsp_msg, &s, &len);
-    LOGI("send catalog: \n%s", s);
+    //LOGI("response catalog to %s: \n%s", from, s);
 
     return 0;
 }
@@ -551,8 +572,12 @@ int message_handle(eXosip_event_t *evtp)
     if (!strcmp(cmd, "Catalog")) {
         LOGI("got message: %s", cmd);
         dbg_dump_request(evtp);
-        catalog_handle(evtp);
+        if (app.mode == MODE_CLIENT)
+            catalog_handle(evtp);
+        else
+            response200(evtp);
     } else if (!strcmp(cmd, "Keepalive")) {
+        LOGI("got message: %s", cmd);
     } else {
         LOGI("got message: %s", cmd);
     }
@@ -566,7 +591,7 @@ int sip_event_handle(eXosip_event_t *evtp)
         case EXOSIP_MESSAGE_NEW:
             //LOGI("EXOSIP_MESSAGE_NEW");
             if (MSG_IS_REGISTER(evtp->request)) {
-                LOGI("get REGISTER");
+                LOGI("got REGISTER");
                 register_handle(evtp);
             } else if (MSG_IS_MESSAGE(evtp->request)) {
                 message_handle(evtp);
@@ -658,9 +683,7 @@ static void * sip_eventloop_thread(void *arg)
     return NULL;
 }
 
-
-
-int sipserver_init()
+int sip_init()
 {
     app.ctx = eXosip_malloc();
     if (!app.ctx) {
@@ -686,8 +709,6 @@ err:
     
     return -1;
 }
-
-
 
 int parse_param(char *argv[])
 {
@@ -716,24 +737,41 @@ int main(int argc, char *argv[])
         goto exit;
     app.running = 1;
     app.server_ip = getenv("SIP_SERVER_IP");
+    if (!app.server_ip) {
+        LOGI("SIP_SERVER_IP not found");
+        goto exit;
+    }
     app.sip_id = getenv("SIP_SERVER_ID");
-    app.relm = getenv("SIP_SERVER_RELM");
+    if (!app.sip_id) {
+        LOGI("SIP_SERVER_ID not found");
+        goto exit;
+    }
+    app.relm = strndup(app.sip_id, 10);
     app.user_id = getenv("SIP_USER_ID");
+    if (!app.user_id) {
+        LOGI("SIP_USER_ID not found");
+        goto exit;
+    }
     show_info();
-    if (sipserver_init())
+    if (sip_init())
         goto exit;
     while(app.running)  {
         if (app.mode == MODE_SERVER) {
             static int done = 0;
 
             if (app.registered && !done) {
-                cmd_callstart();
+                uas_cmd_catalog();
+                sleep(2);
+//                cmd_callstart();
                 done = 1;
+            } else {
             }
         } else {
             if (!app.registered) {
                 LOGI("send register command to sip server");
                 cmd_register();
+                sleep(3);
+                uac_cmd_catalog();
             }
         }
         sleep(1);
@@ -742,3 +780,4 @@ int main(int argc, char *argv[])
 exit:
     return 0;
 }
+
