@@ -306,7 +306,7 @@ int register_handle(eXosip_event_t *evtp)
         SIP_STRDUP(nonce);
         SIP_STRDUP(nonce_count);
         SIP_STRDUP(uri);
-        strcpy(app.user_id, username);
+        app.user_id = strdup(username);
         LOGI("method: %s", method);
         LOGI("realm: %s", realm);
         LOGI("nonce: %s", nonce);
